@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>College Lost & Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* Palette: ink navy, campus blue, LOST red, FOUND green, cool grey page */
+:root{--ink:#14213d;--blue:#2a5bd7;--red:#c8372d;--green:#34a124;--bg:#f1f4f9;--card:#fff;--line:#d9dfea;--mute:#5b6478}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Bricolage Grotesque',system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+
+/* header */
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 24px;background:var(--ink);color:#fff;position:sticky;top:0;z-index:5}
+.logo{font-weight:800;font-size:1.15rem;color:#fff;text-decoration:none}
+.bar input[type=search]{flex:1;min-width:180px;padding:9px 14px;border-radius:8px;border:0}
+.link{background:none;border:0;color:#cfd8ee;cursor:pointer;padding:6px 8px}
+.link:hover{color:#fff}
+#userEmail{font-size:.85rem;margin-right:6px}
+
+/* buttons */
+.btn{background:var(--blue);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
+.btn.ghost{background:transparent;color:inherit;border:1px solid currentColor}
+.btn.lost{background:var(--red)}.btn.found{background:var(--green)}
+.btn.sm{padding:6px 10px;font-size:.85rem}
+
+main{max-width:1200px;margin:0 auto;padding:24px}
+.hero{padding:40px 0 28px}
+.hero h1{font-size:clamp(2rem,5vw,3.6rem);line-height:1.05;font-weight:800;max-width:16ch;margin:0 0 20px}
+.cta{display:flex;gap:12px;flex-wrap:wrap}
+.cta .btn{padding:13px 22px;font-size:1.05rem}
+.stats{display:flex;gap:28px;margin-top:22px;color:var(--mute)}
+.stats b{font-size:1.5rem;color:var(--ink)}
+
+/* filters */
+.filters{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0 20px}
+.filters select,.filters input,dialog input,dialog select,dialog textarea{padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;width:100%}
+.filters select,.filters input{width:auto;flex:1;min-width:150px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.seg button{border:0;background:none;padding:9px 16px;cursor:pointer}
+.seg button.on{background:var(--ink);color:#fff}
+
+/* cards */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.card .img{height:160px;background:#e4e9f2 center/cover;display:grid;place-items:center;font-size:2.4rem;position:relative}
+.badge{position:absolute;top:10px;left:10px;padding:3px 10px;border-radius:99px;color:#fff;font-size:.78rem;font-weight:700}
+.badge.LOST{background:var(--red)}.badge.FOUND{background:var(--green)}
+.card .body{padding:14px;display:flex;flex-direction:column;gap:6px;flex:1}
+.card h3{margin:0;font-size:1.05rem}
+.meta{color:var(--mute);font-size:.85rem}
+.desc{font-size:.9rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .btn{margin-top:auto}
+.card.done{opacity:.6}
+.empty{grid-column:1/-1;padding:40px;text-align:center;color:var(--mute)}
+.actions{display:flex;gap:8px;margin-top:auto}
+
+/* dialogs */
+dialog{border:0;border-radius:12px;padding:24px;width:min(460px,92vw);max-height:90vh}
+dialog::backdrop{background:rgba(20,33,61,.55)}
+dialog h2{margin-top:0}
+dialog label{display:block;margin:12px 0 0;font-size:.9rem;font-weight:600}
+dialog label>*{margin-top:4px;font-weight:400}
+.row{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+.detail img{width:100%;border-radius:8px;max-height:260px;object-fit:cover}
+
+/* feedback */
+.spinner{position:fixed;inset:0;display:grid;place-items:center;background:rgba(255,255,255,.6);z-index:20}
+.spinner::after{content:"";width:42px;height:42px;border:5px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#toasts{position:fixed;right:16px;bottom:16px;display:grid;gap:8px;z-index:30}
+.toast{padding:12px 16px;border-radius:8px;color:#fff;background:var(--green)}
+.toast.err{background:var(--red)}
+@media (prefers-reduced-motion:reduce){.spinner::after{animation-duration:2s}}
+</style>
+</head>
+<body>
+<!-- Supabase setup SQL is stored below (not executed). Copy it into Supabase > SQL Editor and run it once. -->
+<script type="text/plain" id="schema-sql">
+-- College Lost & Found: run this whole file in Supabase > SQL Editor.
+
+-- VIVA: one table holds both LOST and FOUND posts; item_type tells them apart.
+create table if not exists public.items (
+  id            uuid primary key default gen_random_uuid(),
+  created_at    timestamptz not null default now(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  item_type     text not null check (item_type in ('LOST','FOUND')),
+  title         text not null,
+  category      text check (category in ('ID Card','Electronics','Books','Keys','Wallet','Clothing','Other')),
+  location      text,
+  description   text,
+  photo_url     text,
+  contact_email text not null,          -- email or phone used to reach the poster
+  event_at      timestamptz,            -- when the item was lost / found
+  status        text not null default 'ACTIVE' check (status in ('ACTIVE','RESOLVED'))
+);
+
+create index if not exists items_created_idx on public.items (created_at desc);
+
+-- VIVA: Row Level Security is enforced by Postgres itself, so even a
+-- tampered browser client cannot edit another student's listing.
+alter table public.items enable row level security;
+
+create policy "Anyone can read items"      on public.items for select using (true);
+create policy "Users insert own items"     on public.items for insert to authenticated with check (auth.uid() = user_id);
+create policy "Users update own items"     on public.items for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "Users delete own items"     on public.items for delete to authenticated using (auth.uid() = user_id);
+
+-- Storage: public bucket for photos. Files are stored under <user_id>/<filename>.
+insert into storage.buckets (id, name, public) values ('item-images','item-images', true)
+on conflict (id) do nothing;
+
+create policy "Public read item images" on storage.objects for select using (bucket_id = 'item-images');
+create policy "Users upload to own folder" on storage.objects for insert to authenticated
+  with check (bucket_id = 'item-images' and (storage.foldername(name))[1] = auth.uid()::text);
+</script>
+
+
+<!-- A. HEADER / NAV -->
+<header class="bar">
+  <a class="logo" href="#" data-nav="home">🔎 College Lost &amp; Found</a>
+  <input id="search" type="search" placeholder="Search items, places, descriptions" aria-label="Search">
+  <nav>
+    <button class="link" data-nav="home">Feed</button>
+    <button class="link" id="navReport">Report item</button>
+    <button class="link" id="navMine">My listings</button>
+  </nav>
+  <div id="authOut"><button class="btn ghost" id="btnLogin">Log in</button> <button class="btn" id="btnSignup">Sign up</button></div>
+  <div id="authIn" hidden><span id="userEmail"></span> <button class="btn ghost" id="btnLogout">Log out</button></div>
+</header>
+
+<main>
+  <!-- HOME VIEW -->
+  <section id="viewHome">
+    <!-- B. HERO -->
+    <div class="hero">
+      <h1>Lost something on campus? Let's find it together.</h1>
+      <div class="cta">
+        <button class="btn lost" data-report="LOST">Report lost item</button>
+        <button class="btn found" data-report="FOUND">Report found item</button>
+      </div>
+      <div class="stats"><div><b id="statTotal">0</b> listings</div><div><b id="statDone">0</b> recovered</div></div>
+    </div>
+
+    <!-- C. FEED + FILTERS -->
+    <div class="filters">
+      <div class="seg" id="typeSeg">
+        <button class="on" data-type="ALL">All</button><button data-type="LOST">Lost</button><button data-type="FOUND">Found</button>
+      </div>
+      <select id="fCat" aria-label="Category"></select>
+      <input id="fLoc" placeholder="Filter by location" aria-label="Location">
+    </div>
+    <div id="feed" class="grid"></div>
+  </section>
+
+  <!-- F. MY LISTINGS VIEW -->
+  <section id="viewMine" hidden>
+    <h2>My listings</h2>
+    <div id="mine" class="grid"></div>
+  </section>
+</main>
+
+<div id="spinner" class="spinner" hidden></div>
+<div id="toasts"></div>
+
+<!-- D. REPORT MODAL -->
+<dialog id="reportDlg">
+  <form id="reportForm">
+    <h2>Report an item</h2>
+    <div class="seg" id="rType"><button type="button" class="on" data-type="LOST">I lost an item</button><button type="button" data-type="FOUND">I found an item</button></div>
+    <label>Item title<input name="title" required placeholder="Black Dell laptop charger"></label>
+    <label>Category<select name="category" id="rCat"></select></label>
+    <label>Location<input name="location" required placeholder="Computer Lab 3"></label>
+    <label>Date and time<input type="datetime-local" name="event_at" required></label>
+    <label>Contact email or phone<input name="contact_email" required></label>
+    <label>Description<textarea name="description" rows="3"></textarea></label>
+    <label>Photo<input type="file" name="photo" accept="image/*"></label>
+    <div class="row"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn">Post listing</button></div>
+  </form>
+</dialog>
+
+<!-- E. AUTH MODAL -->
+<dialog id="authDlg">
+  <form id="authForm">
+    <div class="seg" id="aTabs"><button type="button" class="on" data-mode="login">Log in</button><button type="button" data-mode="signup">Create account</button></div>
+    <label>Email<input type="email" name="email" required></label>
+    <label>Password<input type="password" name="password" minlength="6" required></label>
+    <div class="row"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn" id="authSubmit">Log in</button></div>
+  </form>
+</dialog>
+
+<!-- DETAILS MODAL -->
+<dialog id="detailDlg"><div id="detailBody"></div><div class="row"><button class="btn ghost" data-close>Close</button></div></dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* College Lost & Found: app logic (Supabase v2 + vanilla JS) */
+
+// 1. Supabase client. Paste values from Supabase > Project Settings > API.
+// VIVA: the anon key is safe in the browser because RLS (schema.sql) enforces permissions.
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const CATS = ['ID Card', 'Electronics', 'Books', 'Keys', 'Wallet', 'Clothing', 'Other'];
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const state = { user: null, items: [], type: 'ALL', q: '', cat: '', loc: '', reportType: 'LOST', authMode: 'login' };
+
+// Escape user text before inserting into HTML (prevents XSS).
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const busy = (on) => ($('#spinner').hidden = !on);
+
+function toast(msg, isErr = false) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (isErr ? ' err' : '');
+  t.textContent = msg;
+  $('#toasts').append(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+// 2. Auth. VIVA: onAuthStateChange fires on login, logout and page reload, so the UI always matches the session.
+db.auth.onAuthStateChange((_event, session) => {
+  state.user = session?.user ?? null;
+  $('#authOut').hidden = !!state.user;
+  $('#authIn').hidden = !state.user;
+  $('#userEmail').textContent = state.user?.email ?? '';
+  if (!state.user) show('home');
+});
+
+$('#authForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const { email, password } = Object.fromEntries(new FormData(e.target));
+  busy(true);
+  const { error } = state.authMode === 'login'
+    ? await db.auth.signInWithPassword({ email, password })
+    : await db.auth.signUp({ email, password });
+  busy(false);
+  if (error) return toast(error.message, true);
+  toast(state.authMode === 'login' ? 'Logged in' : 'Account created. Check your email if confirmation is on.');
+  $('#authDlg').close();
+});
+$('#btnLogout').onclick = async () => { await db.auth.signOut(); toast('Logged out'); };
+
+function openAuth(mode) {
+  state.authMode = mode;
+  $$('#aTabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  $('#authSubmit').textContent = mode === 'login' ? 'Log in' : 'Create account';
+  $('#authDlg').showModal();
+}
+$('#btnLogin').onclick = () => openAuth('login');
+$('#btnSignup').onclick = () => openAuth('signup');
+$$('#aTabs button').forEach((b) => (b.onclick = () => openAuth(b.dataset.mode)));
+
+// 3. Data. VIVA: one query loads everything; search and filters then run in memory, so there are no reloads.
+async function loadItems() {
+  busy(true);
+  const { data, error } = await db.from('items').select('*').order('created_at', { ascending: false });
+  busy(false);
+  if (error) return toast(error.message, true);
+  state.items = data;
+  render();
+}
+
+// 4. Rendering
+function card(it, owner = false) {
+  const img = it.photo_url ? `style="background-image:url('${esc(it.photo_url)}')"` : '';
+  const actions = owner
+    ? `<div class="actions">${it.status === 'ACTIVE' ? `<button class="btn sm found" data-resolve="${it.id}">Mark as resolved</button>` : '<span class="meta">Resolved</span>'}<button class="btn sm ghost" data-del="${it.id}">Delete</button></div>`
+    : `<button class="btn sm" data-view="${it.id}">View details / contact</button>`;
+  return `<article class="card ${it.status === 'RESOLVED' ? 'done' : ''}">
+    <div class="img" ${img}>${it.photo_url ? '' : '📦'}<span class="badge ${it.item_type}">${it.item_type}</span></div>
+    <div class="body"><h3>${esc(it.title)}</h3>
+      <div class="meta">📍 ${esc(it.location)} · ${new Date(it.event_at || it.created_at).toLocaleString()}</div>
+      <div class="desc">${esc(it.description)}</div>${actions}</div></article>`;
+}
+
+function render() {
+  const q = state.q.toLowerCase(), loc = state.loc.toLowerCase();
+  const list = state.items.filter((i) =>
+    i.status === 'ACTIVE' &&
+    (state.type === 'ALL' || i.item_type === state.type) &&
+    (!state.cat || i.category === state.cat) &&
+    (!loc || (i.location || '').toLowerCase().includes(loc)) &&
+    (!q || [i.title, i.location, i.description, i.category].join(' ').toLowerCase().includes(q)));
+  $('#feed').innerHTML = list.map((i) => card(i)).join('') || '<p class="empty">No matching items. Try another filter, or report one.</p>';
+  $('#statTotal').textContent = state.items.length;
+  $('#statDone').textContent = state.items.filter((i) => i.status === 'RESOLVED').length;
+  if (state.user) {
+    const mine = state.items.filter((i) => i.user_id === state.user.id);
+    $('#mine').innerHTML = mine.map((i) => card(i, true)).join('') || '<p class="empty">You have not posted anything yet.</p>';
+  }
+}
+
+function show(view) {
+  $('#viewHome').hidden = view !== 'home';
+  $('#viewMine').hidden = view !== 'mine';
+  render();
+}
+
+// 5. Filters (all client-side)
+$('#search').oninput = (e) => { state.q = e.target.value; render(); };
+$('#fLoc').oninput = (e) => { state.loc = e.target.value; render(); };
+$('#fCat').onchange = (e) => { state.cat = e.target.value; render(); };
+$('#fCat').innerHTML = '<option value="">All categories</option>' + CATS.map((c) => `<option>${c}</option>`).join('');
+$('#rCat').innerHTML = CATS.map((c) => `<option>${c}</option>`).join('');
+$$('#typeSeg button').forEach((b) => (b.onclick = () => {
+  state.type = b.dataset.type;
+  $$('#typeSeg button').forEach((x) => x.classList.toggle('on', x === b));
+  render();
+}));
+
+// 6. Report form. VIVA: upload the photo to Storage first, take its public URL, then save that URL in the row.
+function openReport(type = 'LOST') {
+  if (!state.user) { toast('Log in to report an item', true); return openAuth('login'); }
+  state.reportType = type;
+  $$('#rType button').forEach((b) => b.classList.toggle('on', b.dataset.type === type));
+  $('#reportForm').contact_email.value ||= state.user.email;
+  $('#reportDlg').showModal();
+}
+$$('#rType button').forEach((b) => (b.onclick = () => openReport(b.dataset.type)));
+$$('[data-report]').forEach((b) => (b.onclick = () => openReport(b.dataset.report)));
+$('#navReport').onclick = () => openReport('LOST');
+
+$('#reportForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target, fd = new FormData(f), file = fd.get('photo');
+  busy(true);
+  let photo_url = null;
+  if (file && file.size) {
+    const path = `${state.user.id}/${Date.now()}-${file.name.replace(/[^\w.]/g, '_')}`;
+    const up = await db.storage.from('item-images').upload(path, file);
+    if (up.error) { busy(false); return toast(up.error.message, true); }
+    photo_url = db.storage.from('item-images').getPublicUrl(path).data.publicUrl;
+  }
+  const { error } = await db.from('items').insert({
+    user_id: state.user.id, item_type: state.reportType, photo_url,
+    title: fd.get('title'), category: fd.get('category'), location: fd.get('location'),
+    description: fd.get('description'), contact_email: fd.get('contact_email'),
+    event_at: new Date(fd.get('event_at')).toISOString(),
+  });
+  busy(false);
+  if (error) return toast(error.message, true);
+  toast('Listing posted');
+  f.reset();
+  $('#reportDlg').close();
+  loadItems();
+});
+
+// 7. Item actions (click delegation). VIVA: RLS blocks these calls for anyone but the owner.
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.matches('[data-close]')) t.closest('dialog').close();
+  if (t.dataset.nav) show(t.dataset.nav);
+  if (t.id === 'navMine') { state.user ? show('mine') : (toast('Log in to see your listings', true), openAuth('login')); }
+  if (t.dataset.view) {
+    const it = state.items.find((i) => i.id === t.dataset.view);
+    $('#detailBody').innerHTML = `<div class="detail">${it.photo_url ? `<img src="${esc(it.photo_url)}" alt="">` : ''}
+      <h2>${esc(it.title)} <span class="badge ${it.item_type}" style="position:static">${it.item_type}</span></h2>
+      <p>${esc(it.description) || 'No description.'}</p>
+      <p class="meta">${esc(it.category)} · 📍 ${esc(it.location)}</p>
+      <p><b>Contact:</b> ${esc(it.contact_email)}</p></div>`;
+    $('#detailDlg').showModal();
+  }
+  if (t.dataset.resolve) {
+    const { error } = await db.from('items').update({ status: 'RESOLVED' }).eq('id', t.dataset.resolve);
+    error ? toast(error.message, true) : (toast('Marked as resolved'), loadItems());
+  }
+  if (t.dataset.del && confirm('Delete this listing?')) {
+    const { error } = await db.from('items').delete().eq('id', t.dataset.del);
+    error ? toast(error.message, true) : (toast('Listing deleted'), loadItems());
+  }
+});
+
+loadItems();
+</script>
+</body>
+</html>
